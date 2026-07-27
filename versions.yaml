@@ -1,5 +1,8 @@
 # Pinned versions for the OpenG2P local developer stack.
 # Override individual refs in .env if needed.
+#
+# Application image pins below are the single source of truth for Docker Compose.
+# Sync into .env with: make sync-images
 
 workspace:
   default_path: ../openg2p-workspace
@@ -63,17 +66,32 @@ repos:
     path: awe
 
 images:
+  # Catalog / shared hub (app launcher with links to Farmer, NSR, …)
+  staff_portal_ui: openg2p/openg2p-staff-portal-ui:0.0.0-develop.54
+
+  # Shared registry product UI image (Farmer + NSR each run their own container)
+  registry_staff_portal_ui: openg2p/openg2p-registry-staff-portal-ui:1.1.1
+
+  # Commons
+  iam_staff_portal_api: openg2p/iam-staff-portal-api:1.3.0
+  master_data_api: registry.gitlab.com/openg2p/master-data-service/master-data-api:0.0.0-develop.26
+  awe_api: registry.gitlab.com/openg2p/awe/openg2p-awe:0.0.0-develop.67
+  awe_ui: registry.gitlab.com/openg2p/awe/openg2p-awe-ui:0.0.0-develop.67
+
+  # Farmer Registry
+  farmer_registry_staff_api: openg2p/openg2p-farmer-registry-staff-api:1.2.0
+  farmer_registry_partner_api: openg2p/openg2p-farmer-registry-partner-api:1.2.0
+  farmer_registry_celery: openg2p/openg2p-farmer-registry-celery:1.2.0
+  farmer_registry_db_seed: openg2p/openg2p-farmer-registry-db-seed:1.2.0
+
+  # National Social Registry
+  nsr_staff_api: openg2p/openg2p-nsr-staff-api:1.0.1
+  nsr_partner_api: openg2p/openg2p-nsr-partner-api:1.0.1
+  nsr_celery: openg2p/openg2p-nsr-celery:1.0.1
+  nsr_db_seed: openg2p/openg2p-nsr-db-seed:1.0.1
+
+  # Other stack images
   pbms: openg2p/openg2p-pbms-core:develop
-  farmer_registry_staff_api: openg2p/openg2p-farmer-registry-staff-portal-api:develop
-  farmer_registry_celery: openg2p/openg2p-farmer-registry-celery:develop
-  farmer_registry_ui: openg2p/openg2p-farmer-registry-staff-portal-ui:develop
-  farmer_registry_db_seed: openg2p/openg2p-farmer-registry-db-seed:develop
-  nsr_registry_staff_api: openg2p/openg2p-nsr-registry-staff-portal-api:develop
-  nsr_registry_celery: openg2p/openg2p-nsr-registry-celery:develop
-  nsr_registry_ui: openg2p/openg2p-nsr-registry-staff-portal-ui:develop
-  nsr_registry_db_seed: openg2p/openg2p-nsr-registry-db-seed:develop
-  awe_api: openg2p/openg2p-awe:develop
-  awe_ui: openg2p/openg2p-awe-ui:develop
   g2p_bridge_partner_api: openg2p/g2p-bridge-partner-api:develop
   g2p_bridge_bene_api: openg2p/g2p-bridge-bene-portal-api:develop
   g2p_bridge_celery: openg2p/g2p-bridge-celery:develop
@@ -89,6 +107,11 @@ profiles:
     description: Shared Postgres, Redis, MinIO, Keycloak
     compose_profiles: [infra]
 
+  commons:
+    description: Shared IAM + AWE containers for registry Docker stacks
+    requires: [infra]
+    compose_profiles: [infra, with-redis, commons]
+
   pbms:
     description: PBMS Odoo (native or container)
     requires: [infra]
@@ -96,13 +119,13 @@ profiles:
 
   farmer_registry:
     description: Farmer Registry Gen2 (platform + farmer-extension)
-    requires: [infra, registry_platform, farmer_registry]
-    compose_profiles: [infra, farmer-registry]
+    requires: [infra, commons]
+    compose_profiles: [infra, with-redis, commons, farmer-registry]
 
   national_social_registry:
     description: National Social Registry Gen2 (platform + nsr-extension)
-    requires: [infra, registry_platform, national_social_registry]
-    compose_profiles: [infra, nsr-registry]
+    requires: [infra, commons]
+    compose_profiles: [infra, with-redis, commons, nsr-registry]
 
   bridge:
     description: G2P Bridge APIs, Celery, example bank
@@ -116,10 +139,15 @@ profiles:
 
   awe:
     description: Approval Workflow Engine for registry CR/intake approvals
-    requires: [infra, awe]
-    compose_profiles: [infra, awe]
+    requires: [infra]
+    compose_profiles: [infra, commons]
+
+  docker_registry:
+    description: Docker-only Farmer + NSR + IAM + AWE
+    requires: [infra, commons]
+    compose_profiles: [infra, with-redis, commons, farmer-registry, nsr-registry]
 
   full:
     description: All infrastructure and containerized apps
-    requires: [infra, pbms, farmer_registry, national_social_registry, bridge, spar]
-    compose_profiles: [infra, pbms, farmer-registry, nsr-registry, bridge, spar]
+    requires: [infra, commons, pbms, farmer_registry, national_social_registry, bridge, spar]
+    compose_profiles: [infra, with-redis, commons, pbms, farmer-registry, nsr-registry, bridge, spar]

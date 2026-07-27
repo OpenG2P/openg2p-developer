@@ -36,10 +36,10 @@ PBMS_BGTASK_DB_NAME="${PBMS_BGTASK_DB_NAME:-bgtaskdb}"
 PBMS_REGISTRY_VARIANT="${PBMS_REGISTRY_VARIANT:-farmer-registry}"
 PBMS_REDIS_DB="${PBMS_REDIS_DB:-1}"
 FARMER_REGISTRY_STAFF_API_PORT="${FARMER_REGISTRY_STAFF_API_PORT:-8001}"
-FARMER_REGISTRY_UI_PORT="${FARMER_REGISTRY_UI_PORT:-3000}"
+FARMER_REGISTRY_UI_PORT="${FARMER_REGISTRY_UI_PORT:-3001}"
 NSR_REGISTRY_STAFF_API_PORT="${NSR_REGISTRY_STAFF_API_PORT:-8011}"
-NSR_REGISTRY_UI_PORT="${NSR_REGISTRY_UI_PORT:-3010}"
-IAM_STAFF_PORT="${IAM_STAFF_PORT:-8020}"
+NSR_REGISTRY_UI_PORT="${NSR_REGISTRY_UI_PORT:-3002}"
+STAFF_PORTAL_UI_PORT="${STAFF_PORTAL_UI_PORT:-3000}"
 KEYCLOAK_IAM_CLIENT_SECRET="${KEYCLOAK_IAM_CLIENT_SECRET:-dev-iam-staff-secret}"
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-staff}"
 AWE_API_PORT="${AWE_API_PORT:-8030}"
@@ -250,12 +250,16 @@ render "${ROOT_DIR}/templates/iam-staff-portal-api.env.tpl" \
   "{{IAM_DATA_DIR}}" "${GENERATED_DIR}/iam/data" \
   "{{KEYCLOAK_IAM_CLIENT_SECRET}}" "${KEYCLOAK_IAM_CLIENT_SECRET}"
 
-REGISTRY_OIDC_AUDIENCES="$(bash -c 'source "'"${ROOT_DIR}"'/scripts/lib/extension-manifest.sh"; extension_manifest_build_oidc_audiences_json')"
+# Local Keycloak has no multi-client audience mappers. IAM rejects tokens when
+# LoginProvider.audiences is a long allow-list and `aud` is a short array/string.
+# Empty list disables the audience gate (same idea as AWE audience: "").
+REGISTRY_OIDC_AUDIENCES="$(bash -c 'source "'"${ROOT_DIR}"'/scripts/lib/extension-manifest.sh"; extension_manifest_build_oidc_audiences_json_local')"
 
 render "${ROOT_DIR}/templates/iam-data/login_providers.json.tpl" \
   "${GENERATED_DIR}/iam/data/login_providers.json" \
   "{{KEYCLOAK_URL}}" "${KEYCLOAK_URL}" \
   "{{IAM_STAFF_PORT}}" "${IAM_STAFF_PORT}" \
+  "{{STAFF_PORTAL_UI_PORT}}" "${STAFF_PORTAL_UI_PORT}" \
   "{{REGISTRY_OIDC_AUDIENCES}}" "${REGISTRY_OIDC_AUDIENCES}"
 
 AWE_CONFIG_PATH="${GENERATED_DIR}/awe/config/default.yaml"

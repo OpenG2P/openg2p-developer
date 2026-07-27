@@ -16,6 +16,10 @@ Keycloak runs via Docker in dev mode:
    - OIDC clients (see table below)
    - Client roles used by registry staff portals (full IAM catalog; see `scripts/lib/keycloak-registry-roles.sh`)
    - Dev user: `staff` / `staff` with **all** registry staff portal roles on farmer/NSR clients (override via `.env`)
+   - AWE demo approvers (Op Admin + Tech Admin on farmer/NSR clients; password `pass` via `KEYCLOAK_AWE_APPROVER_PASSWORD`):
+     - Stage 1 · `alex.carter`
+     - Stage 2 · `nina.patel`
+   - IAM client `iam-staff-portal` allows Staff/Farmer/NSR UI URLs as **post-logout** redirect URIs (logout was failing with "Invalid redirect uri" when `default_redirect_uri` was empty/`/`)
 
 Verify:
 

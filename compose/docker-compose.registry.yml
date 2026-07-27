@@ -1,14 +1,84 @@
 name: openg2p-developer
 
-# Registry Gen2 domain variants. Native dev is recommended:
-#   make farmer-registry-run
-#   make nsr-registry-run
+# Registry Gen2 Docker services (Farmer + NSR).
+# Prefer: make docker-farmer-up  OR  make docker-nsr-up  (each includes seed)
+# Native alternative: make farmer-registry-run / make nsr-registry-run
 
 services:
+  # Migrates farmer_master_data_db (geo tables required by db-seed LOAD_GEO_DATA).
+  farmer-master-data-api:
+    profiles: [farmer-registry, full]
+    image: ${MASTER_DATA_API_IMAGE:-registry.gitlab.com/openg2p/master-data-service/master-data-api:0.0.0-develop.26}
+    container_name: openg2p-farmer-master-data-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
+    env_file:
+      - ../generated/farmer-registry/docker/master-data-api.env
+    environment:
+      GEN2_MASTER_DATA_API_HOST: "0.0.0.0"
+      GEN2_MASTER_DATA_API_PORT: "8000"
+      GEN2_MASTER_DATA_API_NO_OF_WORKERS: "2"
+    ports:
+      - "${MASTER_DATA_API_PORT:-8042}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+
   farmer-registry-staff-api:
     profiles: [farmer-registry, full]
-    image: ${FARMER_REGISTRY_STAFF_API_IMAGE:-openg2p/openg2p-farmer-registry-staff-portal-api:develop}
+    image: ${FARMER_REGISTRY_STAFF_API_IMAGE:-openg2p/openg2p-farmer-registry-staff-api:1.2.0}
     container_name: openg2p-farmer-registry-staff-api
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
+      awe:
+        condition: service_healthy
+      farmer-master-data-api:
+        condition: service_healthy
+    env_file:
+      - ../generated/farmer-registry/docker/staff-portal-api.env
+    environment:
+      REGISTRY_STAFF_PORTAL_API_APP_PORT: "8000"
+      STAFF_PORTAL_PORT: "8000"
+    ports:
+      - "${FARMER_REGISTRY_STAFF_API_PORT:-8001}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+
+  farmer-registry-partner-api:
+    profiles: [farmer-registry, full]
+    image: ${FARMER_REGISTRY_PARTNER_API_IMAGE:-openg2p/openg2p-farmer-registry-partner-api:1.2.0}
+    container_name: openg2p-farmer-registry-partner-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -17,14 +87,17 @@ services:
       minio:
         condition: service_healthy
     env_file:
-      - ../generated/farmer-registry/staff-portal-api.env
+      - ../generated/farmer-registry/docker/partner-api.env
+    environment:
+      REGISTRY_PARTNER_API_PORT: "8000"
+      PARTNER_PORT: "8000"
     ports:
-      - "${FARMER_REGISTRY_STAFF_API_PORT:-8001}:8000"
+      - "${FARMER_REGISTRY_PARTNER_API_PORT:-8006}:8000"
     restart: unless-stopped
 
   farmer-registry-celery-worker:
     profiles: [farmer-registry, full]
-    image: ${FARMER_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-farmer-registry-celery:develop}
+    image: ${FARMER_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-farmer-registry-celery:1.2.0}
     container_name: openg2p-farmer-registry-celery-worker
     depends_on:
       postgres:
@@ -33,26 +106,126 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      id-generator:
+        condition: service_healthy
     env_file:
-      - ../generated/farmer-registry/celery-workers.env
+      - ../generated/farmer-registry/docker/celery-workers.env
+    environment:
+      CELERY_APP: openg2p_registry_celery_worker.main.celery_app
+      # Must consume the worker queue (default CELERY_OPTS only listens on "celery")
+      CELERY_OPTS: worker -Q farmer_registry_worker_queue --loglevel=info
+    restart: unless-stopped
+
+  farmer-registry-celery-beat:
+    profiles: [farmer-registry, full]
+    image: ${FARMER_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-farmer-registry-celery:1.2.0}
+    container_name: openg2p-farmer-registry-celery-beat
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../generated/farmer-registry/docker/celery-beat.env
+    environment:
+      CELERY_APP: openg2p_registry_celery_beat.main.celery_app
+      # Beat scheduler + producer worker on default celery queue
+      CELERY_OPTS: worker --beat -Q celery --loglevel=info --schedule=/tmp/celery-beat-schedule.db
     restart: unless-stopped
 
   farmer-registry-staff-ui:
     profiles: [farmer-registry, full]
-    image: ${FARMER_REGISTRY_UI_IMAGE:-openg2p/openg2p-farmer-registry-staff-portal-ui:develop}
+    image: ${REGISTRY_STAFF_PORTAL_UI_IMAGE:-openg2p/openg2p-registry-staff-portal-ui:1.1.1}
     container_name: openg2p-farmer-registry-staff-ui
+    extra_hosts:
+      - "localhost:host-gateway"
     depends_on:
-      - farmer-registry-staff-api
+      farmer-registry-staff-api:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
     env_file:
-      - ../generated/farmer-registry/staff-portal-ui.env
+      - ../generated/farmer-registry/docker/staff-portal-ui.env
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     ports:
-      - "${FARMER_REGISTRY_UI_PORT:-3000}:3000"
+      - "${FARMER_REGISTRY_UI_PORT:-3001}:3000"
+    restart: unless-stopped
+
+  nsr-master-data-api:
+    profiles: [nsr-registry, full]
+    image: ${MASTER_DATA_API_IMAGE:-registry.gitlab.com/openg2p/master-data-service/master-data-api:0.0.0-develop.26}
+    container_name: openg2p-nsr-master-data-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
+    env_file:
+      - ../generated/national-social-registry/docker/master-data-api.env
+    environment:
+      GEN2_MASTER_DATA_API_HOST: "0.0.0.0"
+      GEN2_MASTER_DATA_API_PORT: "8000"
+      GEN2_MASTER_DATA_API_NO_OF_WORKERS: "2"
+    ports:
+      - "${NSR_MASTER_DATA_API_PORT:-8043}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
     restart: unless-stopped
 
   nsr-registry-staff-api:
     profiles: [nsr-registry, full]
-    image: ${NSR_REGISTRY_STAFF_API_IMAGE:-openg2p/openg2p-nsr-registry-staff-portal-api:develop}
+    image: ${NSR_REGISTRY_STAFF_API_IMAGE:-openg2p/openg2p-nsr-staff-api:1.0.1}
     container_name: openg2p-nsr-registry-staff-api
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
+      awe:
+        condition: service_healthy
+      nsr-master-data-api:
+        condition: service_healthy
+    env_file:
+      - ../generated/national-social-registry/docker/staff-portal-api.env
+    environment:
+      REGISTRY_STAFF_PORTAL_API_APP_PORT: "8000"
+      STAFF_PORTAL_PORT: "8000"
+    ports:
+      - "${NSR_REGISTRY_STAFF_API_PORT:-8011}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+
+  nsr-registry-partner-api:
+    profiles: [nsr-registry, full]
+    image: ${NSR_REGISTRY_PARTNER_API_IMAGE:-openg2p/openg2p-nsr-partner-api:1.0.1}
+    container_name: openg2p-nsr-registry-partner-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,14 +234,17 @@ services:
       minio:
         condition: service_healthy
     env_file:
-      - ../generated/national-social-registry/staff-portal-api.env
+      - ../generated/national-social-registry/docker/partner-api.env
+    environment:
+      REGISTRY_PARTNER_API_PORT: "8000"
+      PARTNER_PORT: "8000"
     ports:
-      - "${NSR_REGISTRY_STAFF_API_PORT:-8011}:8000"
+      - "${NSR_REGISTRY_PARTNER_API_PORT:-8012}:8000"
     restart: unless-stopped
 
   nsr-registry-celery-worker:
     profiles: [nsr-registry, full]
-    image: ${NSR_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-nsr-registry-celery:develop}
+    image: ${NSR_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-nsr-celery:1.0.1}
     container_name: openg2p-nsr-registry-celery-worker
     depends_on:
       postgres:
@@ -77,28 +253,59 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      id-generator:
+        condition: service_healthy
     env_file:
-      - ../generated/national-social-registry/celery-workers.env
+      - ../generated/national-social-registry/docker/celery-workers.env
+    environment:
+      CELERY_APP: openg2p_registry_celery_worker.main.celery_app
+      CELERY_OPTS: worker -Q nsr_registry_worker_queue --loglevel=info
+    restart: unless-stopped
+
+  nsr-registry-celery-beat:
+    profiles: [nsr-registry, full]
+    image: ${NSR_REGISTRY_CELERY_IMAGE:-openg2p/openg2p-nsr-celery:1.0.1}
+    container_name: openg2p-nsr-registry-celery-beat
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../generated/national-social-registry/docker/celery-beat.env
+    environment:
+      CELERY_APP: openg2p_registry_celery_beat.main.celery_app
+      CELERY_OPTS: worker --beat -Q celery --loglevel=info --schedule=/tmp/celery-beat-schedule.db
     restart: unless-stopped
 
   nsr-registry-staff-ui:
     profiles: [nsr-registry, full]
-    image: ${NSR_REGISTRY_UI_IMAGE:-openg2p/openg2p-nsr-registry-staff-portal-ui:develop}
+    image: ${REGISTRY_STAFF_PORTAL_UI_IMAGE:-openg2p/openg2p-registry-staff-portal-ui:1.1.1}
     container_name: openg2p-nsr-registry-staff-ui
+    extra_hosts:
+      - "localhost:host-gateway"
     depends_on:
-      - nsr-registry-staff-api
+      nsr-registry-staff-api:
+        condition: service_healthy
+      iam-staff-api:
+        condition: service_healthy
     env_file:
-      - ../generated/national-social-registry/staff-portal-ui.env
+      - ../generated/national-social-registry/docker/staff-portal-ui.env
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
     ports:
-      - "${NSR_REGISTRY_UI_PORT:-3010}:3000"
+      - "${NSR_REGISTRY_UI_PORT:-3002}:3000"
     restart: unless-stopped
 
   farmer-registry-db-seed:
     profiles: [farmer-registry-seed]
-    image: ${FARMER_REGISTRY_DB_SEED_IMAGE:-openg2p/openg2p-farmer-registry-db-seed:develop}
+    image: ${FARMER_REGISTRY_DB_SEED_IMAGE:-openg2p/openg2p-farmer-registry-db-seed:1.2.0}
     container_name: openg2p-farmer-registry-db-seed
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     environment:
       PGHOST: postgres
@@ -106,12 +313,35 @@ services:
       PGDATABASE: farmer_registry_db
       PGUSER: ${POSTGRES_SUPERUSER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      MD_PGHOST: postgres
+      MD_PGPORT: 5432
+      MD_PGDATABASE: farmer_master_data_db
+      MD_PGUSER: ${POSTGRES_SUPERUSER:-postgres}
+      MD_PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AWE_DB_SEED_ENABLED: ${AWE_DB_SEED_ENABLED:-true}
+      AWE_PGHOST: postgres
+      AWE_PGPORT: 5432
+      AWE_PGDATABASE: awe
+      AWE_PGUSER: ${POSTGRES_SUPERUSER:-postgres}
+      AWE_PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AWE_CALLBACK_SECRET_ID: ${AWE_REGISTRY_CALLBACK_SECRET_ID:-00000000-0000-4000-8000-000000000001}
+      AWE_CALLBACK_HMAC_SECRET: ${AWE_REGISTRY_CALLBACK_HMAC_SECRET:-dev-registry-awe-callback-secret}
+      AWE_CALLBACK_CALLER_SERVICE: ${AWE_CALLBACK_CALLER_SERVICE:-registry}
       LOAD_SAMPLE_DATA: ${LOAD_SAMPLE_DATA:-false}
+      LOAD_GEO_DATA: ${LOAD_GEO_DATA:-false}
+      LOAD_IMAGES: ${LOAD_IMAGES:-false}
+      LOAD_TEMPLATES: ${LOAD_TEMPLATES:-false}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-adminsecret}
+      MINIO_SECURE: "false"
+      TEMPLATE_BUCKET_NAME: templates
+      IMAGE_BUCKET_NAME: registrant-photos
     restart: "no"
 
   nsr-registry-db-seed:
     profiles: [nsr-registry-seed]
-    image: ${NSR_REGISTRY_DB_SEED_IMAGE:-openg2p/openg2p-nsr-registry-db-seed:develop}
+    image: ${NSR_REGISTRY_DB_SEED_IMAGE:-openg2p/openg2p-nsr-db-seed:1.0.1}
     container_name: openg2p-nsr-registry-db-seed
     depends_on:
       postgres:
@@ -124,12 +354,27 @@ services:
       PGDATABASE: nsr_registry_db
       PGUSER: ${POSTGRES_SUPERUSER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      MD_PGHOST: postgres
+      MD_PGPORT: 5432
+      MD_PGDATABASE: nsr_master_data_db
+      MD_PGUSER: ${POSTGRES_SUPERUSER:-postgres}
+      MD_PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AWE_DB_SEED_ENABLED: ${AWE_DB_SEED_ENABLED:-true}
+      AWE_PGHOST: postgres
+      AWE_PGPORT: 5432
+      AWE_PGDATABASE: awe
+      AWE_PGUSER: ${POSTGRES_SUPERUSER:-postgres}
+      AWE_PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      AWE_CALLBACK_SECRET_ID: ${AWE_REGISTRY_CALLBACK_SECRET_ID:-00000000-0000-4000-8000-000000000001}
+      AWE_CALLBACK_HMAC_SECRET: ${AWE_REGISTRY_CALLBACK_HMAC_SECRET:-dev-registry-awe-callback-secret}
+      AWE_CALLBACK_CALLER_SERVICE: ${AWE_CALLBACK_CALLER_SERVICE:-registry}
       LOAD_SAMPLE_DATA: ${LOAD_SAMPLE_DATA:-false}
+      LOAD_GEO_DATA: ${LOAD_GEO_DATA:-false}
       LOAD_IMAGES: ${LOAD_IMAGES:-false}
       LOAD_TEMPLATES: ${LOAD_TEMPLATES:-false}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-secret}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-adminsecret}
       MINIO_SECURE: "false"
       TEMPLATE_BUCKET_NAME: templates
       IMAGE_BUCKET_NAME: registrant-photos

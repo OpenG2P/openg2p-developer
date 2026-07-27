@@ -49,6 +49,22 @@ make farmer-registry-run
 
 Run `make help` for all targets.
 
+### Docker-only Farmer / NSR (no Python/Node)
+
+Each variant is a separate command (includes infra, IAM, AWE, Keycloak, that registry’s UI/API/Celery, and seed). Farmer does **not** start NSR.
+
+```bash
+cp .env.example .env
+# set USE_EXTERNAL_REDIS=false in .env
+docker login registry.gitlab.com   # required for AWE images
+
+make sync-images           # versions.yaml → .env *_IMAGE pins
+make docker-farmer-up      # Farmer only (+ shared IAM/AWE/Keycloak) + seed
+make docker-nsr-up         # NSR only (+ shared IAM/AWE/Keycloak) + seed
+```
+
+See [profiles/docker-registry-full.md](profiles/docker-registry-full.md) for ports, credentials, and image pins.
+
 ## Architecture
 
 ```text
@@ -196,7 +212,13 @@ make up-nsr-registry
 make up-bridge
 make up-spar
 make up-full
+
+# Docker-only (published images; seeding included)
+make sync-images
+make docker-farmer-up      # Farmer only
+make docker-nsr-up         # NSR only
 ```
+
 
 ## Profiles
 
@@ -207,6 +229,7 @@ See `profiles/` for curated stacks:
 - `custom-registry-extension-dev.md` — bootstrap a new empty Registry Gen2 extension product
 - `farmer-registry-dev.md` — Farmer Registry Gen2
 - `national-social-registry-dev.md` — National Social Registry Gen2
+- `docker-registry-full.md` — Docker-only Farmer + NSR + IAM + AWE
 - `pbms-bridge-dev.md` — PBMS + G2P Bridge integration
 - `spar-dev.md` — SPAR development
 - `full-stack.md` — full integration smoke test
@@ -331,7 +354,10 @@ See `keycloak/README.md`.
 
 ## Version pinning
 
-Repo and image pins live in `versions.yaml`. Override branch/tag refs in `.env`:
+Repo and image pins live in `versions.yaml`.
+
+- **Git refs** — override with `*_REF` in `.env` (used by `make clone`).
+- **Docker images** — listed under `images:` in `versions.yaml`. Sync into `.env` with `make sync-images` (writes the managed `# BEGIN IMAGE PINS` block used by Compose).
 
 ```bash
 PBMS_REF=develop
@@ -341,6 +367,8 @@ NSR_REF=develop
 G2P_BRIDGE_REF=develop
 SPAR_REF=develop
 ODOO_REF=17.0
+
+make sync-images   # after editing versions.yaml images:
 ```
 
 ## Hybrid cluster development

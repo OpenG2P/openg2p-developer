@@ -9,6 +9,7 @@
     "server_metadata_url": "{{KEYCLOAK_URL}}/realms/staff/.well-known/openid-configuration",
     "issuer": "{{KEYCLOAK_URL}}/realms/staff",
     "oauth_callback_url": "http://localhost:{{IAM_STAFF_PORT}}/auth/callback",
+    "default_redirect_uri": "http://localhost:{{STAFF_PORTAL_UI_PORT}}/",
     "scope": "openid profile email",
     "enable_pkce": true,
     "active": true,

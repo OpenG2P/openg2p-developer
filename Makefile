@@ -4,16 +4,17 @@ ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 COMPOSE ?= docker compose
 COMPOSE_FILES := \
 	-f compose/docker-compose.infra.yml \
+	-f compose/docker-compose.commons.yml \
 	-f compose/docker-compose.pbms.yml \
 	-f compose/docker-compose.registry.yml \
 	-f compose/docker-compose.bridge.yml \
 	-f compose/docker-compose.spar.yml
 
-COMPOSE_PROFILES := --profile infra --profile with-redis --profile pbms --profile farmer-registry --profile nsr-registry --profile farmer-registry-seed --profile nsr-registry-seed --profile bridge --profile spar --profile full
+COMPOSE_PROFILES := --profile infra --profile with-redis --profile commons --profile pbms --profile farmer-registry --profile nsr-registry --profile farmer-registry-seed --profile nsr-registry-seed --profile bridge --profile spar --profile full
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup clone generate install-odoo install-iam install-awe install-registry-extension install-registry-ui install-registry-db-seed install-pbms-bg-tasks install-bridge install-spar \
+.PHONY: help setup clone generate generate-docker sync-images install-odoo install-iam install-awe install-registry-extension install-registry-ui install-registry-db-seed install-pbms-bg-tasks install-bridge install-spar \
 	infra-ensure infra-up keycloak-init infra-down up down status logs clean \
 	pbms-setup pbms-full-setup pbms-init init-pbms-bg-tasks init-bridge init-spar seed-spar-farmer-links \
 	pbms-run pbms-stop free-native-stack free-spar-ports \
@@ -23,7 +24,9 @@ COMPOSE_PROFILES := --profile infra --profile with-redis --profile pbms --profil
 	farmer-setup farmer-registry-init farmer-registry-migrate farmer-registry-seed farmer-registry-fix-seed-enums farmer-registry-validate-seed \
 	nsr-setup nsr-registry-init nsr-registry-migrate nsr-registry-seed seed-registry iam-init awe-init \
 	extension-package extension-setup extension-run extension-init extension-migrate extension-seed clone-profiles \
-	up-infra up-pbms up-farmer-registry up-nsr-registry up-farmer-registry-seed up-nsr-registry-seed up-bridge up-spar up-full
+	up-infra up-pbms up-farmer-registry up-nsr-registry up-farmer-registry-seed up-nsr-registry-seed up-bridge up-spar up-full \
+	docker-farmer-up docker-nsr-up docker-registry-up docker-registry-init \
+	docker-farmer-continue docker-nsr-continue docker-down docker-all-up docker-clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
@@ -39,6 +42,12 @@ clone-profiles: ## List available clone/setup profiles
 
 generate: ## Generate Odoo conf and service env files from templates
 	@bash scripts/generate-config.sh
+
+generate-docker: ## Generate Docker-network env files under generated/**/docker/
+	@bash scripts/generate-docker-config.sh
+
+sync-images: ## Sync versions.yaml image pins into .env / .env.example
+	@bash scripts/sync-image-env.sh
 
 install-odoo: ## Install Odoo 17 Python dependencies into a venv
 	@bash scripts/install-odoo-deps.sh
@@ -89,8 +98,8 @@ farmer-registry-migrate: generate ## Migrate Farmer Registry schema only
 farmer-registry-seed: generate ## Seed Farmer Registry configuration and optional sample data
 	@VARIANT=farmer-registry bash scripts/seed-registry-db.sh farmer-registry
 
-farmer-registry-fix-seed-enums: ## Fix legacy farmer seed enum values in DB (source_of_income etc.)
-	@bash scripts/fix-farmer-registry-seeded-enums.sh
+farmer-registry-fix-seed-enums: ## Fix legacy farmer seed enums + backfill register history
+	@bash scripts/farmer-post-seed.sh
 
 farmer-registry-validate-seed: ## Validate farmer seed/DB data against extension schemas
 	@bash scripts/validate-farmer-registry-seed.sh
@@ -184,17 +193,17 @@ up-infra: infra-up ## Start only shared infrastructure
 up-pbms: infra-up ## Start infra + containerized PBMS image
 	@$(COMPOSE) $(COMPOSE_FILES) --profile pbms up -d
 
-up-farmer-registry: generate infra-up ## Start infra + containerized Farmer Registry
-	@$(COMPOSE) $(COMPOSE_FILES) --profile farmer-registry up -d
+up-farmer-registry: docker-farmer-up ## Docker Farmer only: infra + IAM + AWE + Farmer + seed (no NSR)
 
-up-nsr-registry: generate infra-up ## Start infra + containerized National Social Registry
-	@$(COMPOSE) $(COMPOSE_FILES) --profile nsr-registry up -d
+up-nsr-registry: docker-nsr-up ## Docker NSR only: infra + IAM + AWE + NSR + seed (no Farmer)
 
-up-farmer-registry-seed: generate infra-up ## Run Farmer Registry db-seed container (after migrate)
-	@$(COMPOSE) $(COMPOSE_FILES) --profile farmer-registry-seed up --abort-on-container-exit
+up-farmer-registry-seed: generate-docker infra-up ## Run Farmer Registry db-seed container (after migrate)
+	@bash -c 'set -a; source .env; set +a; export USE_EXTERNAL_REDIS=false; \
+		$(COMPOSE) $(COMPOSE_FILES) --profile farmer-registry-seed run --rm --no-deps farmer-registry-db-seed'
 
-up-nsr-registry-seed: generate infra-up ## Run NSR db-seed container (after migrate)
-	@$(COMPOSE) $(COMPOSE_FILES) --profile nsr-registry-seed up --abort-on-container-exit
+up-nsr-registry-seed: generate-docker infra-up ## Run NSR db-seed container (after migrate)
+	@bash -c 'set -a; source .env; set +a; export USE_EXTERNAL_REDIS=false; \
+		$(COMPOSE) $(COMPOSE_FILES) --profile nsr-registry-seed run --rm --no-deps nsr-registry-db-seed'
 
 up-bridge: generate infra-up ## Start infra + containerized G2P Bridge (if images exist)
 	@$(COMPOSE) $(COMPOSE_FILES) --profile bridge up -d
@@ -202,8 +211,36 @@ up-bridge: generate infra-up ## Start infra + containerized G2P Bridge (if image
 up-spar: infra-up ## Start infra for SPAR native development
 	@echo "SPAR runs natively. Use: make spar-run"
 
-up-full: generate infra-up ## Start infra + all container profiles
-	@$(COMPOSE) $(COMPOSE_FILES) --profile full up -d
+up-full: generate-docker infra-up ## Start infra + all container profiles
+	@bash -c 'set -a; source .env; set +a; export USE_EXTERNAL_REDIS=false; \
+		$(COMPOSE) $(COMPOSE_FILES) --profile with-redis --profile commons --profile full up -d'
+
+docker-farmer-up: ## Docker Farmer only: Keycloak+IAM+AWE+MasterData+Farmer + seed (full recreate)
+	@bash scripts/docker-farmer-up.sh
+
+docker-nsr-up: ## Docker NSR only: Keycloak+IAM+AWE+MasterData+NSR + seed (full recreate)
+	@bash scripts/docker-nsr-up.sh
+
+docker-farmer-continue: ## Resume Farmer after a failed up (no teardown); RESET_DBS=1 to remigrate
+	@bash scripts/docker-farmer-continue.sh
+
+docker-nsr-continue: ## Resume NSR after a failed up (no teardown); RESET_DBS=1 to remigrate
+	@bash scripts/docker-nsr-continue.sh
+
+docker-all-up: docker-registry-up ## Docker all: Farmer then NSR (full recreate each)
+
+docker-down: ## Stop all OpenG2P Docker services (infra/commons/farmer/nsr/pbms/bridge/spar)
+	@bash scripts/docker-down.sh
+
+docker-clean: ## Stop all OpenG2P Docker services and remove volumes (destructive)
+	@bash -c 'set -a; source .env 2>/dev/null; set +a; export USE_EXTERNAL_REDIS=false; \
+		$(COMPOSE) $(COMPOSE_FILES) $(COMPOSE_PROFILES) down -v --remove-orphans'
+
+docker-registry-up: ## Docker both Farmer then NSR (prefer docker-farmer-up / docker-nsr-up)
+	@bash scripts/docker-registry-up.sh
+
+docker-registry-init: ## Deprecated alias — use docker-farmer-up / docker-nsr-up (includes seed)
+	@bash scripts/docker-registry-init.sh
 
 pbms-setup: ## One-time PBMS bootstrap (infra, deps, registry, Odoo + bg-task DBs)
 	@bash scripts/pbms-setup.sh

@@ -99,6 +99,7 @@ case "$VARIANT" in
         # shellcheck disable=SC1091
         source "${DB_SEED_DIR}/venv/bin/activate"
         python3 "${ROOT_DIR}/scripts/fix-farmer-registry-seeded-enums.py"
+        python3 "${ROOT_DIR}/scripts/seed-farmer-registry-initial-history.py"
       )
 
       echo "[seed] Validating farmer seed data against extension schemas ..."
