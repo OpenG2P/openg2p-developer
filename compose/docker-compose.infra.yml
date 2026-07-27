@@ -5,7 +5,7 @@ name: openg2p-developer
 
 services:
   postgres:
-    profiles: [infra, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
+    profiles: [infra, commons, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
     image: postgres:16
     container_name: openg2p-postgres
     environment:
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   redis:
-    profiles: [with-redis, pbms, farmer-registry, nsr-registry, bridge, full]
+    profiles: [with-redis, commons, pbms, farmer-registry, nsr-registry, bridge, full]
     image: redis:7-alpine
     container_name: openg2p-redis
     ports:
@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
 
   minio:
-    profiles: [infra, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
+    profiles: [infra, commons, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
     image: minio/minio:latest
     container_name: openg2p-minio
     command: server /data --console-address ":9001"
@@ -45,7 +45,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-adminsecret}
     ports:
-      - "9000:9000"
+      - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
@@ -57,23 +57,29 @@ services:
     restart: unless-stopped
 
   minio-init:
-    profiles: [infra, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
+    profiles: [infra, commons, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
     image: minio/mc:latest
     container_name: openg2p-minio-init
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-admin} ${MINIO_ROOT_PASSWORD:-adminsecret} &&
-      mc mb --ignore-existing local/default_bucket &&
-      mc mb --ignore-existing local/templates &&
-      exit 0
-      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-adminsecret}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-default_bucket}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${MINIO_BUCKET_NAME}"
+        mc mb --ignore-existing local/templates
+        mc mb --ignore-existing local/registrant-photos || true
+        exit 0
     restart: "no"
 
   keycloak:
-    profiles: [infra, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
+    profiles: [infra, commons, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
     image: quay.io/keycloak/keycloak:26.0
     platform: linux/amd64
     container_name: openg2p-keycloak
@@ -85,7 +91,7 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HOSTNAME_STRICT_HTTPS: "false"
     ports:
-      - "8080:8080"
+      - "${KEYCLOAK_PORT:-8080}:8080"
     volumes:
       - ../keycloak/realm-export:/opt/keycloak/data/import:ro
     healthcheck:
@@ -97,7 +103,7 @@ services:
     restart: unless-stopped
 
   id-generator:
-    profiles: [infra, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
+    profiles: [infra, commons, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, full]
     image: ${ID_GENERATOR_IMAGE:-openg2p/openg2p-id-generator:1.0.0}
     platform: linux/amd64
     container_name: openg2p-id-generator
@@ -131,7 +137,7 @@ services:
     restart: unless-stopped
 
   keycloak-init:
-    profiles: [infra, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
+    profiles: [infra, commons, pbms, farmer-registry, nsr-registry, farmer-registry-seed, nsr-registry-seed, bridge, spar, full]
     image: quay.io/keycloak/keycloak:26.0
     platform: linux/amd64
     container_name: openg2p-keycloak-init
@@ -148,9 +154,11 @@ services:
       KEYCLOAK_IAM_CLIENT_SECRET: ${KEYCLOAK_IAM_CLIENT_SECRET:-dev-iam-staff-secret}
       KEYCLOAK_DEV_USER: ${KEYCLOAK_DEV_USER:-staff}
       KEYCLOAK_DEV_PASSWORD: ${KEYCLOAK_DEV_PASSWORD:-staff}
+      KEYCLOAK_AWE_APPROVER_PASSWORD: ${KEYCLOAK_AWE_APPROVER_PASSWORD:-pass}
       IAM_STAFF_PORT: ${IAM_STAFF_PORT:-8020}
-      FARMER_REGISTRY_UI_PORT: ${FARMER_REGISTRY_UI_PORT:-3000}
-      NSR_REGISTRY_UI_PORT: ${NSR_REGISTRY_UI_PORT:-3010}
+      FARMER_REGISTRY_UI_PORT: ${FARMER_REGISTRY_UI_PORT:-3001}
+      NSR_REGISTRY_UI_PORT: ${NSR_REGISTRY_UI_PORT:-3002}
+      STAFF_PORTAL_UI_PORT: ${STAFF_PORTAL_UI_PORT:-3000}
       PBMS_HTTP_PORT: ${PBMS_HTTP_PORT:-8069}
       G2P_BRIDGE_API_PORT: ${G2P_BRIDGE_API_PORT:-8002}
       SPAR_MAPPER_API_PORT: ${SPAR_MAPPER_API_PORT:-8004}

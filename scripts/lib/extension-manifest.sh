@@ -211,7 +211,12 @@ extension_manifest_render_template() {
 }
 
 extension_manifest_build_oidc_audiences_json() {
-  local -a items=("nsr-registry-staff-portal" "farmer-registry-staff-portal")
+  # Allowed JWT `aud` values for IAM token validation (LoginProvider.audiences).
+  # Must include clients used by the hub Staff Portal (iam-staff-portal) and
+  # Keycloak's default access-token audience (`account`), plus registry UIs.
+  # Keep this list short: when Keycloak returns `aud` as an array, IAM requires
+  # every listed audience to appear in the token (subset check).
+  local -a items=("iam-staff-portal" "account" "nsr-registry-staff-portal" "farmer-registry-staff-portal")
   local variant manifest client_id
   while IFS= read -r variant; do
     [[ -n "$variant" ]] || continue
@@ -220,7 +225,13 @@ extension_manifest_build_oidc_audiences_json() {
     [[ -n "$client_id" ]] || continue
     items+=("$client_id")
   done < <(extension_manifest_list_variants)
-  items+=("account")
   # LoginProvider.audiences is a VARCHAR of JSON-encoded list, not a JSON array column.
   python3 -c 'import json, sys; print(json.dumps(json.dumps(sys.argv[1:])))' "${items[@]}"
+}
+
+# Local Docker/Keycloak often has no audience mappers, so tokens only carry
+# `aud: "account"` (string) or a short list — the multi-client allow-list above
+# then fails IAM's subset check. Empty list disables the audience gate locally.
+extension_manifest_build_oidc_audiences_json_local() {
+  python3 -c 'import json; print(json.dumps(json.dumps([])))'
 }

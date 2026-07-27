@@ -31,12 +31,12 @@ LOAD_IMAGES="${LOAD_IMAGES:-false}"
 
 case "$VARIANT" in
   farmer-registry)
-    UI_PORT="${FARMER_REGISTRY_UI_PORT:-3000}"
+    UI_PORT="${FARMER_REGISTRY_UI_PORT:-3001}"
     RUN_TARGET="farmer-registry-run"
     SEED_TARGET="farmer-registry-seed"
     ;;
   national-social-registry)
-    UI_PORT="${NSR_REGISTRY_UI_PORT:-3010}"
+    UI_PORT="${NSR_REGISTRY_UI_PORT:-3002}"
     RUN_TARGET="nsr-registry-run"
     SEED_TARGET="nsr-registry-seed"
     ;;

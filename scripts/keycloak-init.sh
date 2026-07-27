@@ -8,8 +8,9 @@ KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
 KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-staff}"
 IAM_STAFF_PORT="${IAM_STAFF_PORT:-8020}"
-FARMER_REGISTRY_UI_PORT="${FARMER_REGISTRY_UI_PORT:-3000}"
-NSR_REGISTRY_UI_PORT="${NSR_REGISTRY_UI_PORT:-3010}"
+FARMER_REGISTRY_UI_PORT="${FARMER_REGISTRY_UI_PORT:-3001}"
+NSR_REGISTRY_UI_PORT="${NSR_REGISTRY_UI_PORT:-3002}"
+STAFF_PORTAL_UI_PORT="${STAFF_PORTAL_UI_PORT:-3000}"
 PBMS_HTTP_PORT="${PBMS_HTTP_PORT:-8069}"
 G2P_BRIDGE_API_PORT="${G2P_BRIDGE_API_PORT:-8002}"
 SPAR_MAPPER_API_PORT="${SPAR_MAPPER_API_PORT:-8004}"
@@ -19,6 +20,12 @@ KEYCLOAK_AWE_RESOLVER_CLIENT_SECRET="${KEYCLOAK_AWE_RESOLVER_CLIENT_SECRET:-dev-
 AWE_UI_PORT="${AWE_UI_PORT:-8031}"
 KEYCLOAK_DEV_USER="${KEYCLOAK_DEV_USER:-staff}"
 KEYCLOAK_DEV_PASSWORD="${KEYCLOAK_DEV_PASSWORD:-staff}"
+# AWE demo approvers (Stage 1 / Stage 2) — password matches helm aweApproverUserPassword.
+KEYCLOAK_AWE_APPROVER_PASSWORD="${KEYCLOAK_AWE_APPROVER_PASSWORD:-pass}"
+AWE_APPROVER_ROLES=(
+  "Operations Administrator"
+  "Technical Administrator"
+)
 
 if [[ -f /scripts/lib/keycloak-registry-roles.sh ]]; then
   # shellcheck disable=SC1091
@@ -143,28 +150,45 @@ assign_realm_management_role() {
     --rolename "${role_name}" >/dev/null 2>&1 || true
 }
 
-ensure_dev_user() {
+ensure_user() {
+  # ensure_user <username> <password> <email> <firstName> <lastName>
+  local username="$1"
+  local password="$2"
+  local email="$3"
+  local first_name="$4"
+  local last_name="$5"
   local user_id
-  user_id="$("${KCADM}" get users -r "${KEYCLOAK_REALM}" -q "username=${KEYCLOAK_DEV_USER}" --fields id 2>/dev/null \
+
+  user_id="$("${KCADM}" get users -r "${KEYCLOAK_REALM}" -q "username=${username}" --fields id 2>/dev/null \
     | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)"
 
   if [[ -z "${user_id}" ]]; then
-    echo "[keycloak-init] Creating dev user '${KEYCLOAK_DEV_USER}' (password: ${KEYCLOAK_DEV_PASSWORD})"
+    echo "[keycloak-init] Creating user '${username}'"
     "${KCADM}" create users -r "${KEYCLOAK_REALM}" \
-      -s "username=${KEYCLOAK_DEV_USER}" \
+      -s "username=${username}" \
       -s enabled=true \
-      -s email="${KEYCLOAK_DEV_USER}@localhost" \
+      -s "email=${email}" \
       -s emailVerified=true \
-      -s firstName=Local \
-      -s lastName=Developer
+      -s "firstName=${first_name}" \
+      -s "lastName=${last_name}"
+  else
+    echo "[keycloak-init] User '${username}' already exists"
   fi
 
-  echo "[keycloak-init] Ensuring dev user '${KEYCLOAK_DEV_USER}' password"
   "${KCADM}" set-password -r "${KEYCLOAK_REALM}" \
-    --username "${KEYCLOAK_DEV_USER}" \
-    --new-password "${KEYCLOAK_DEV_PASSWORD}" \
+    --username "${username}" \
+    --new-password "${password}" \
     --temporary=false
+}
+
+ensure_dev_user() {
+  ensure_user \
+    "${KEYCLOAK_DEV_USER}" \
+    "${KEYCLOAK_DEV_PASSWORD}" \
+    "${KEYCLOAK_DEV_USER}@localhost" \
+    "Local" \
+    "Developer"
 
   for role in "${REGISTRY_STAFF_CLIENT_ROLES[@]}"; do
     assign_client_role "${KEYCLOAK_DEV_USER}" "nsr-registry-staff-portal" "${role}"
@@ -172,6 +196,25 @@ ensure_dev_user() {
   done
 
   assign_client_role "${KEYCLOAK_DEV_USER}" "awe-admin-portal" "AWE_ADMIN"
+}
+
+# AWE seeded policies use alex.carter (Stage 1) and nina.patel (Stage 2).
+ensure_awe_approver_users() {
+  local username role
+
+  echo "[keycloak-init] Ensuring AWE approver users (Op Admin + Tech Admin) ..."
+
+  ensure_user "alex.carter" "${KEYCLOAK_AWE_APPROVER_PASSWORD}" \
+    "alex.carter@email.com" "Alex" "Carter"
+  ensure_user "nina.patel" "${KEYCLOAK_AWE_APPROVER_PASSWORD}" \
+    "nina.patel@email.com" "Nina" "Patel"
+
+  for username in alex.carter nina.patel; do
+    for role in "${AWE_APPROVER_ROLES[@]}"; do
+      assign_client_role "${username}" "farmer-registry-staff-portal" "${role}"
+      assign_client_role "${username}" "nsr-registry-staff-portal" "${role}"
+    done
+  done
 }
 
 ensure_awe_clients() {
@@ -207,6 +250,11 @@ ensure_realm
 echo "[keycloak-init] Ensuring OIDC clients in realm '${KEYCLOAK_REALM}' ..."
 
 # IAM Staff Portal API — confidential client used for the browser SSO code flow.
+# Include Staff/Farmer/NSR UI URLs so Keycloak accepts post_logout_redirect_uri
+# (IAM logout uses login_providers.default_redirect_uri).
+# Keycloak 26 kcadm rejects dotted -s 'attributes.foo=...'; pass attributes as JSON.
+IAM_POST_LOGOUT_REDIRECT_URIS="http://localhost:${STAFF_PORTAL_UI_PORT}/*##http://localhost:${FARMER_REGISTRY_UI_PORT}/*##http://localhost:${NSR_REGISTRY_UI_PORT}/*##http://localhost:${IAM_STAFF_PORT}/auth/callback"
+IAM_CLIENT_ATTRIBUTES="$(printf '{"post.logout.redirect.uris":"%s"}' "${IAM_POST_LOGOUT_REDIRECT_URIS}")"
 ensure_client "iam-staff-portal" \
   -s enabled=true \
   -s publicClient=false \
@@ -214,8 +262,9 @@ ensure_client "iam-staff-portal" \
   -s standardFlowEnabled=true \
   -s directAccessGrantsEnabled=true \
   -s serviceAccountsEnabled=false \
-  -s 'redirectUris=["http://localhost:'"${IAM_STAFF_PORT}"'/auth/callback"]' \
-  -s 'webOrigins=["+"]'
+  -s 'redirectUris=["http://localhost:'"${IAM_STAFF_PORT}"'/auth/callback","http://localhost:'"${STAFF_PORTAL_UI_PORT}"'/*","http://localhost:'"${FARMER_REGISTRY_UI_PORT}"'/*","http://localhost:'"${NSR_REGISTRY_UI_PORT}"'/*"]' \
+  -s 'webOrigins=["+"]' \
+  -s "attributes=${IAM_CLIENT_ATTRIBUTES}"
 
 ensure_client "nsr-registry-staff-portal" \
   -s enabled=true \
@@ -277,6 +326,7 @@ for role in "${REGISTRY_STAFF_CLIENT_ROLES[@]}"; do
 done
 
 ensure_dev_user
+ensure_awe_approver_users
 
 if [[ -f /keycloak-ensure-extension-clients.sh ]]; then
   OPENG2P_WORKSPACE="${OPENG2P_WORKSPACE:-/workspace}" \
@@ -285,3 +335,5 @@ fi
 
 echo "[keycloak-init] Done. Realm: ${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}"
 echo "[keycloak-init] Dev login: ${KEYCLOAK_DEV_USER} / ${KEYCLOAK_DEV_PASSWORD}"
+echo "[keycloak-init] AWE Stage 1 approver: alex.carter / ${KEYCLOAK_AWE_APPROVER_PASSWORD}"
+echo "[keycloak-init] AWE Stage 2 approver: nina.patel / ${KEYCLOAK_AWE_APPROVER_PASSWORD}"

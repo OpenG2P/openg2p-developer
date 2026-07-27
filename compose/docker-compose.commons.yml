@@ -1,0 +1,108 @@
+name: openg2p-developer
+
+# Shared IAM + AWE containers for Docker-only Farmer / NSR stacks.
+# Started by: make docker-farmer-up / make docker-nsr-up  (or --profile commons)
+
+services:
+  iam-staff-api:
+    profiles: [commons, farmer-registry, nsr-registry, full]
+    image: ${IAM_STAFF_PORTAL_API_IMAGE:-openg2p/iam-staff-portal-api:1.3.0}
+    container_name: openg2p-iam-staff-api
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    env_file:
+      - ../generated/iam/docker/staff-portal-api.env
+    environment:
+      IAM_STAFF_APP_PORT: "8000"
+      IAM_API_PORT: "8000"
+      IAM_STAFF_DATA_DIR: /opt/iam-staff-portal-data
+    volumes:
+      - ../generated/iam/data:/opt/iam-staff-portal-data:ro
+    ports:
+      - "${IAM_STAFF_PORT:-8020}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+    restart: unless-stopped
+
+  # Service name must be `awe` — AWE UI nginx proxies /v1/awe/ to awe:8000.
+  awe:
+    profiles: [commons, farmer-registry, nsr-registry, full]
+    image: ${AWE_API_IMAGE:-registry.gitlab.com/openg2p/awe/openg2p-awe:0.0.0-develop.67}
+    container_name: openg2p-awe-api
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    env_file:
+      - ../generated/awe/docker/awe-api.env
+    environment:
+      UVICORN_HOST: "0.0.0.0"
+      UVICORN_PORT: "8000"
+      CONFIG_PATH: /app/config/default.yaml
+    volumes:
+      - ../generated/awe/docker/config/default.yaml:/app/config/default.yaml:ro
+    ports:
+      - "${AWE_API_PORT:-8030}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/awe/health')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    restart: unless-stopped
+
+  awe-ui:
+    profiles: [commons, farmer-registry, nsr-registry, full]
+    image: ${AWE_UI_IMAGE:-registry.gitlab.com/openg2p/awe/openg2p-awe-ui:0.0.0-develop.67}
+    container_name: openg2p-awe-ui
+    depends_on:
+      awe:
+        condition: service_healthy
+    volumes:
+      - ../generated/awe/docker/admin-ui.config.json:/usr/share/nginx/html/config.json:ro
+    ports:
+      - "${AWE_UI_PORT:-8031}:8080"
+    restart: unless-stopped
+
+  # Hub Staff Portal — single page with links to Farmer / NSR / other apps (from IAM).
+  # Farmer and NSR each keep their own registry UI services.
+  staff-portal-ui:
+    profiles: [commons, farmer-registry, nsr-registry, full]
+    image: ${STAFF_PORTAL_UI_IMAGE:-openg2p/openg2p-staff-portal-ui:0.0.0-develop.54}
+    container_name: openg2p-staff-portal-ui
+    extra_hosts:
+      - "localhost:host-gateway"
+    depends_on:
+      iam-staff-api:
+        condition: service_healthy
+    env_file:
+      - ../generated/staff-portal/docker/staff-portal-ui.env
+    environment:
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      NODE_ENV: production
+    ports:
+      - "${STAFF_PORTAL_UI_PORT:-3000}:3000"
+    restart: unless-stopped
