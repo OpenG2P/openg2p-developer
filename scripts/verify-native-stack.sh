@@ -105,9 +105,9 @@ fi
 if want registry; then
   case "${PBMS_REGISTRY_VARIANT}" in
     farmer-registry)
-      check_beat "Registry Celery beat" "openg2p-registry-celery-beat-producers.*celery_app beat"
-      check_worker "Registry Celery beat worker" "openg2p-registry-celery-beat-producers.*worker -Q celery"
-      check_worker "Registry Celery worker" "openg2p-registry-celery-workers.*farmer_registry_worker_queue"
+      check_beat "Registry Celery beat" "openg2p-registry-celery-beat.*celery_app beat"
+      check_worker "Registry Celery beat worker" "openg2p-registry-celery-beat.*worker -Q celery"
+      check_worker "Registry Celery worker" "openg2p-registry-celery-worker.*farmer_registry_worker_queue"
       ;;
   esac
 fi

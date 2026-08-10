@@ -4,7 +4,7 @@
     "provider_name": "Keycloak Staff",
     "description": "Local Keycloak staff realm",
     "client_id": "iam-staff-portal",
-    "client_secret": "staff_keycloak_client_secret",
+    "client_secret": "{{KEYCLOAK_IAM_CLIENT_SECRET}}",
     "token_endpoint_auth_method": "client_secret_post",
     "server_metadata_url": "{{KEYCLOAK_URL}}/realms/staff/.well-known/openid-configuration",
     "issuer": "{{KEYCLOAK_URL}}/realms/staff",

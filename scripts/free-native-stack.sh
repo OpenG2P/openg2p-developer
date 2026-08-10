@@ -37,8 +37,10 @@ for pattern in \
   "pbms_celery_worker_app.celery_app" \
   "beat_producers.main.celery_app beat" \
   "beat_producers.main.celery_app worker -Q celery" \
-  "openg2p-registry-celery-beat-producers" \
-  "openg2p-registry-celery-workers" \
+  "openg2p-registry-celery-beat" \
+  "openg2p-registry-celery-worker" \
+  "openg2p_registry_staff_api.main" \
+  "openg2p_gen2_master_data.main" \
   "g2p-bridge/core/celery-beat-producers.*worker -Q celery" \
   "g2p-bridge/core/celery-beat-producers.*celery_app beat" \
   "g2p-bridge/core/celery-workers.*g2p_bridge_queue" \

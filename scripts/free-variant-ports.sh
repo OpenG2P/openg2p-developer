@@ -18,6 +18,8 @@ fi
 IAM_STAFF_PORT="${IAM_STAFF_PORT:-8020}"
 AWE_API_PORT="${AWE_API_PORT:-8030}"
 AWE_UI_PORT="${AWE_UI_PORT:-8031}"
+MASTER_DATA_API_PORT="${MASTER_DATA_API_PORT:-8042}"
+NSR_MASTER_DATA_API_PORT="${NSR_MASTER_DATA_API_PORT:-8043}"
 
 free_port() {
   local port="$1"
@@ -73,6 +75,10 @@ free_port "${PORT}" "${VARIANT} staff UI"
 free_port "${IAM_STAFF_PORT}" "IAM staff API"
 free_port "${AWE_API_PORT}" "AWE API"
 free_port "${AWE_UI_PORT}" "AWE admin UI"
+case "$VARIANT" in
+  national-social-registry) free_port "${NSR_MASTER_DATA_API_PORT}" "${VARIANT} Master Data API" ;;
+  *) free_port "${MASTER_DATA_API_PORT}" "${VARIANT} Master Data API" ;;
+esac
 
 # Next.js can keep running after the shell job exits; stop by path as well.
 stop_matching_processes "${VARIANT} staff UI (next dev)" "${UI_DIR}/node_modules/.bin/next dev"
@@ -94,12 +100,15 @@ case "$VARIANT" in
     ;;
 esac
 
-stop_matching_processes "${VARIANT} Celery beat" "openg2p-registry-celery-beat-producers.*celery_app beat"
-stop_matching_processes "${VARIANT} Celery beat worker" "openg2p-registry-celery-beat-producers.*worker -Q celery"
+stop_matching_processes "${VARIANT} Celery beat" "openg2p-registry-celery-beat.*celery_app beat"
+stop_matching_processes "${VARIANT} Celery beat worker" "openg2p-registry-celery-beat.*worker -Q celery"
 stop_matching_processes "${VARIANT} Celery beat" "celery-beat-${BEAT_DB_NAME}.db"
-stop_matching_processes "${VARIANT} Celery beat" "${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat-producers"
-stop_matching_processes "${VARIANT} Celery worker" "${REGISTRY_ROOT}/celery/openg2p-registry-celery-workers"
-stop_matching_processes "${VARIANT} Celery worker" "openg2p-registry-celery-workers.*farmer_registry_worker_queue"
+stop_matching_processes "${VARIANT} Celery beat" "${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat"
+stop_matching_processes "${VARIANT} Celery worker" "${REGISTRY_ROOT}/celery/openg2p-registry-celery-worker"
+stop_matching_processes "${VARIANT} Celery worker" "openg2p-registry-celery-worker.*farmer_registry_worker_queue"
+stop_matching_processes "${VARIANT} Celery worker" "openg2p-registry-celery-worker.*nsr_registry_worker_queue"
+stop_matching_processes "${VARIANT} Master Data API" "openg2p_gen2_master_data.main"
+stop_matching_processes "${VARIANT} staff API" "openg2p_registry_staff_api.main"
 
 # Celery beat persists its schedule under /tmp. A stale file from an older
 # registry-platform version can reference removed tasks (e.g.

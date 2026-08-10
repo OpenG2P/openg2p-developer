@@ -39,7 +39,10 @@ FARMER_REGISTRY_STAFF_API_PORT="${FARMER_REGISTRY_STAFF_API_PORT:-8001}"
 FARMER_REGISTRY_UI_PORT="${FARMER_REGISTRY_UI_PORT:-3001}"
 NSR_REGISTRY_STAFF_API_PORT="${NSR_REGISTRY_STAFF_API_PORT:-8011}"
 NSR_REGISTRY_UI_PORT="${NSR_REGISTRY_UI_PORT:-3002}"
+MASTER_DATA_API_PORT="${MASTER_DATA_API_PORT:-8042}"
+NSR_MASTER_DATA_API_PORT="${NSR_MASTER_DATA_API_PORT:-8043}"
 STAFF_PORTAL_UI_PORT="${STAFF_PORTAL_UI_PORT:-3000}"
+IAM_STAFF_PORT="${IAM_STAFF_PORT:-8020}"
 KEYCLOAK_IAM_CLIENT_SECRET="${KEYCLOAK_IAM_CLIENT_SECRET:-dev-iam-staff-secret}"
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-staff}"
 AWE_API_PORT="${AWE_API_PORT:-8030}"
@@ -95,6 +98,8 @@ render_registry_variant() {
   local keycloak_client_id="$7"
   local ui_app_mnemonic="$8"
   local auth_enabled="${9:-false}"
+  local master_data_api_port="${10:-${MASTER_DATA_API_PORT}}"
+  local extension_module="${11:-openg2p_registry_extensions}"
 
   local common=(
     "{{OPENG2P_WORKSPACE}}" "${OPENG2P_WORKSPACE}"
@@ -113,10 +118,12 @@ render_registry_variant() {
     "{{REGISTRY_MASTER_DATA_DB_NAME}}" "${master_db_name}"
     "{{REGISTRY_STAFF_API_PORT}}" "${staff_api_port}"
     "{{REGISTRY_UI_PORT}}" "${ui_port}"
+    "{{MASTER_DATA_API_PORT}}" "${master_data_api_port}"
     "{{REGISTRY_WORKER_QUEUE}}" "${worker_queue}"
     "{{REGISTRY_KEYCLOAK_CLIENT_ID}}" "${keycloak_client_id}"
     "{{REGISTRY_UI_APP_MNEMONIC}}" "${ui_app_mnemonic}"
     "{{REGISTRY_AUTH_ENABLED}}" "${auth_enabled}"
+    "{{REGISTRY_EXTENSION_MODULE}}" "${extension_module}"
     "{{AWE_API_PORT}}" "${AWE_API_PORT}"
     "{{AWE_REGISTRY_CALLBACK_SECRET_ID}}" "${AWE_REGISTRY_CALLBACK_SECRET_ID}"
     "{{AWE_REGISTRY_CALLBACK_HMAC_SECRET}}" "${AWE_REGISTRY_CALLBACK_HMAC_SECRET}"
@@ -137,6 +144,10 @@ render_registry_variant() {
 
   render "${ROOT_DIR}/templates/registry-staff-portal-ui.env.tpl" \
     "${GENERATED_DIR}/${variant_dir}/staff-portal-ui.env" \
+    "${common[@]}"
+
+  render "${ROOT_DIR}/templates/master-data-api.env.tpl" \
+    "${GENERATED_DIR}/${variant_dir}/master-data-api.env" \
     "${common[@]}"
 }
 
@@ -204,7 +215,9 @@ render_registry_variant \
   "farmer_registry_worker_queue" \
   "farmer-registry-staff-portal" \
   "farmer-registry-staff-portal" \
-  "${REGISTRY_AUTH_ENABLED}"
+  "${REGISTRY_AUTH_ENABLED}" \
+  "${MASTER_DATA_API_PORT}" \
+  "openg2p_registry_farmer_extension"
 
 render_registry_variant \
   "national-social-registry" \
@@ -215,7 +228,9 @@ render_registry_variant \
   "nsr_registry_worker_queue" \
   "nsr-registry-staff-portal" \
   "nsr-registry-staff-portal" \
-  "${REGISTRY_AUTH_ENABLED}"
+  "${REGISTRY_AUTH_ENABLED}" \
+  "${NSR_MASTER_DATA_API_PORT}" \
+  "openg2p_registry_nsr_extension"
 
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/lib/extension-manifest.sh"
@@ -233,7 +248,9 @@ while IFS= read -r custom_variant; do
     "${EXTENSION_WORKER_QUEUE}" \
     "${EXTENSION_KEYCLOAK_CLIENT_ID}" \
     "${EXTENSION_UI_APP_MNEMONIC}" \
-    "${REGISTRY_AUTH_ENABLED}"
+    "${REGISTRY_AUTH_ENABLED}" \
+    "${MASTER_DATA_API_PORT}" \
+    "${EXTENSION_PYTHON_MODULE:-openg2p_registry_extensions}"
 done < <(extension_manifest_list_variants)
 
 render "${ROOT_DIR}/templates/iam-staff-portal-api.env.tpl" \
@@ -260,6 +277,7 @@ render "${ROOT_DIR}/templates/iam-data/login_providers.json.tpl" \
   "{{KEYCLOAK_URL}}" "${KEYCLOAK_URL}" \
   "{{IAM_STAFF_PORT}}" "${IAM_STAFF_PORT}" \
   "{{STAFF_PORTAL_UI_PORT}}" "${STAFF_PORTAL_UI_PORT}" \
+  "{{KEYCLOAK_IAM_CLIENT_SECRET}}" "${KEYCLOAK_IAM_CLIENT_SECRET}" \
   "{{REGISTRY_OIDC_AUDIENCES}}" "${REGISTRY_OIDC_AUDIENCES}"
 
 AWE_CONFIG_PATH="${GENERATED_DIR}/awe/config/default.yaml"

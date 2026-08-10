@@ -59,6 +59,7 @@ bash "${ROOT_DIR}/scripts/install-iam.sh"
 bash "${ROOT_DIR}/scripts/init-iam.sh"
 bash "${ROOT_DIR}/scripts/install-awe.sh"
 bash "${ROOT_DIR}/scripts/init-awe.sh"
+bash "${ROOT_DIR}/scripts/install-master-data.sh"
 
 VARIANT="$VARIANT" bash "${ROOT_DIR}/scripts/install-registry-extension.sh"
 bash "${ROOT_DIR}/scripts/install-registry-ui.sh"
@@ -75,10 +76,19 @@ bash "${ROOT_DIR}/scripts/id-generator-wait.sh" || {
 }
 
 echo
+echo "[registry-setup] Initializing Master Data for ${LABEL} ..."
+VARIANT="$VARIANT" bash "${ROOT_DIR}/scripts/init-master-data.sh" "$VARIANT"
+
+echo
 echo "[registry-setup] Migrating schema and seeding ${LABEL} configuration ..."
 VARIANT="$VARIANT" bash "${ROOT_DIR}/scripts/migrate-registry-db.sh"
+# Geo/codelists live in Master Data; enable when sample data is requested.
+if [[ "$LOAD_SAMPLE_DATA" == "true" && "${LOAD_GEO_DATA:-}" != "false" ]]; then
+  LOAD_GEO_DATA=true
+fi
 VARIANT="$VARIANT" \
   LOAD_SAMPLE_DATA="$LOAD_SAMPLE_DATA" \
+  LOAD_GEO_DATA="${LOAD_GEO_DATA:-false}" \
   LOAD_TEMPLATES="$LOAD_TEMPLATES" \
   LOAD_IMAGES="$LOAD_IMAGES" \
   bash "${ROOT_DIR}/scripts/seed-registry-db.sh" "$VARIANT"

@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Remap farmer db-seed JSON legacy ids (i0001, h001) to openg2p-data UUIDs."""
+"""Remap farmer db-seed JSON ids onto openg2p-data demography ids.
+
+When demography uses the same legacy ids as the fixtures (i0001 / h001), the
+map is identity and this step mainly normalizes farmer enum values. Older
+trees that shipped UUID demography JSON still remap i#### / h### onto those
+UUIDs.
+"""
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import shutil
@@ -35,17 +42,40 @@ def _load_json_array(path: Path) -> list[dict]:
     return rows
 
 
+def _load_demography_rows(path: Path) -> list[dict]:
+    if path.suffix == ".json":
+        return _load_json_array(path)
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
 def _build_id_maps(data_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
-    individuals = _load_json_array(data_dir / "demography" / "individuals.json")
-    households = _load_json_array(data_dir / "demography" / "households.json")
+    demography = data_dir / "demography"
+    individuals_json = demography / "individuals.json"
+    households_json = demography / "households.json"
+    individuals_csv = demography / "individuals.csv"
+    households_csv = demography / "households.csv"
+
+    if individuals_json.is_file() and households_json.is_file():
+        individuals = _load_demography_rows(individuals_json)
+        households = _load_demography_rows(households_json)
+    elif individuals_csv.is_file() and households_csv.is_file():
+        individuals = _load_demography_rows(individuals_csv)
+        households = _load_demography_rows(households_csv)
+    else:
+        raise FileNotFoundError(
+            f"Expected demography CSV or JSON under {demography}"
+        )
 
     individual_map = {
         _legacy_individual_id(row["functional_record_id"]): row["internal_record_id"]
         for row in individuals
+        if row.get("functional_record_id") and row.get("internal_record_id")
     }
     household_map = {
         _legacy_household_id(row["functional_record_id"]): row["internal_record_id"]
         for row in households
+        if row.get("functional_record_id") and row.get("internal_record_id")
     }
     return individual_map, household_map
 
@@ -139,8 +169,15 @@ def main() -> None:
     source_seed_dir = Path(sys.argv[2]).resolve()
     output_seed_dir = Path(sys.argv[3]).resolve()
 
-    if not (data_dir / "demography" / "individuals.json").is_file():
-        print(f"[openg2p-data] Missing demography JSON under {data_dir}", file=sys.stderr)
+    demography = data_dir / "demography"
+    has_json = (demography / "individuals.json").is_file() and (
+        demography / "households.json"
+    ).is_file()
+    has_csv = (demography / "individuals.csv").is_file() and (
+        demography / "households.csv"
+    ).is_file()
+    if not has_json and not has_csv:
+        print(f"[openg2p-data] Missing demography CSV/JSON under {data_dir}", file=sys.stderr)
         sys.exit(1)
     if not source_seed_dir.is_dir():
         print(f"[openg2p-data] Missing source seed dir: {source_seed_dir}", file=sys.stderr)

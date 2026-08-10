@@ -9,8 +9,8 @@ registry_variant_load_env
 OPENG2P_WORKSPACE="$(registry_variant_resolve_path "$ROOT_DIR" "${OPENG2P_WORKSPACE:-../openg2p-workspace}")"
 
 UI_DIRS=(
-  "${FARMER_REGISTRY_UI_PATH:-${OPENG2P_WORKSPACE}/registry-platform/ui/staff-portal-ui}"
-  "${NSR_REGISTRY_UI_PATH:-${OPENG2P_WORKSPACE}/registry-platform/ui/staff-portal-ui}"
+  "${FARMER_REGISTRY_UI_PATH:-${OPENG2P_WORKSPACE}/registry-platform/ui/staff-ui}"
+  "${NSR_REGISTRY_UI_PATH:-${OPENG2P_WORKSPACE}/registry-platform/ui/staff-ui}"
 )
 
 installed=()
@@ -38,7 +38,7 @@ for ui_path in "${UI_DIRS[@]}"; do
   fi
   installed+=("$ui_path")
 
-  echo "Installing staff portal UI dependencies in ${ui_path} ..."
+  echo "Installing staff UI dependencies in ${ui_path} ..."
   (
     cd "$ui_path"
     npm install
@@ -46,8 +46,8 @@ for ui_path in "${UI_DIRS[@]}"; do
 done
 
 if [[ ${#installed[@]} -eq 0 ]]; then
-  echo "No staff portal UI repo found. Run: make clone" >&2
+  echo "No staff UI repo found at registry-platform/ui/staff-ui. Run: make clone" >&2
   exit 1
 fi
 
-echo "Staff portal UI dependencies installed."
+echo "Staff UI dependencies installed."

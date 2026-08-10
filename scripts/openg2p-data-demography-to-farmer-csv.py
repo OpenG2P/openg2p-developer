@@ -83,10 +83,15 @@ def main() -> None:
     individuals_csv = data_dir / "individuals.csv"
     households_csv = data_dir / "households.csv"
 
+    # Current openg2p-data ships demography as CSV; older trees used JSON.
+    if individuals_csv.is_file() and households_csv.is_file():
+        print("[openg2p-data] Demography CSV files already present.")
+        return
+
     if not individuals_json.is_file() or not households_json.is_file():
         print(
-            "[openg2p-data] Expected individuals.json and households.json under "
-            f"{data_dir}",
+            "[openg2p-data] Expected demography CSV (individuals.csv, households.csv) "
+            f"or JSON under {data_dir}",
             file=sys.stderr,
         )
         sys.exit(1)
