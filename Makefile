@@ -14,7 +14,7 @@ COMPOSE_PROFILES := --profile infra --profile with-redis --profile commons --pro
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup clone generate generate-docker sync-images install-odoo install-iam install-awe install-registry-extension install-registry-ui install-registry-db-seed install-pbms-bg-tasks install-bridge install-spar \
+.PHONY: help setup clone generate generate-docker sync-images install-odoo install-iam install-awe install-master-data install-registry-extension install-registry-ui install-registry-db-seed install-pbms-bg-tasks install-bridge install-spar \
 	infra-ensure infra-up keycloak-init infra-down up down status logs clean \
 	pbms-setup pbms-full-setup pbms-init init-pbms-bg-tasks init-bridge init-spar seed-spar-farmer-links \
 	pbms-run pbms-stop free-native-stack free-spar-ports \
@@ -22,7 +22,7 @@ COMPOSE_PROFILES := --profile infra --profile with-redis --profile commons --pro
 	verify-native-stack verify-pbms verify-registry verify-bridge verify-spar retry-bridge-fa \
 	farmer-registry-run nsr-registry-run bridge-run spar-run iam-run awe-run \
 	farmer-setup farmer-registry-init farmer-registry-migrate farmer-registry-seed farmer-registry-fix-seed-enums farmer-registry-validate-seed \
-	nsr-setup nsr-registry-init nsr-registry-migrate nsr-registry-seed seed-registry iam-init awe-init \
+	nsr-setup nsr-registry-init nsr-registry-migrate nsr-registry-seed seed-registry iam-init awe-init master-data-init master-data-seed \
 	extension-package extension-setup extension-run extension-init extension-migrate extension-seed clone-profiles \
 	up-infra up-pbms up-farmer-registry up-nsr-registry up-farmer-registry-seed up-nsr-registry-seed up-bridge up-spar up-full \
 	docker-farmer-up docker-nsr-up docker-registry-up docker-registry-init \
@@ -64,7 +64,7 @@ install-spar: ## Install SPAR mapper and bene portal API Python dependencies
 install-registry-extension: ## Install domain extension (VARIANT=farmer-registry|national-social-registry)
 	@bash scripts/install-registry-extension.sh $(VARIANT)
 
-install-registry-ui: ## Install npm deps for Gen2 staff portal UI repo(s)
+install-registry-ui: ## Install npm deps for Gen2 staff UI (registry-platform/ui/staff-ui)
 	@bash scripts/install-registry-ui.sh
 
 install-registry-db-seed: ## Install db-seed Python deps (VARIANT=farmer-registry|national-social-registry|custom)
@@ -77,11 +77,20 @@ install-iam: ## Install IAM staff portal API Python dependencies
 install-awe: ## Install Approval Workflow Engine (AWE) Python dependencies
 	@bash scripts/install-awe.sh
 
+install-master-data: ## Install Master Data API + db-seed Python dependencies
+	@bash scripts/install-master-data.sh
+
 iam-init: generate ## Migrate IAM schema, seed login providers, and sync variant registry applications
 	@bash scripts/init-iam.sh
 
 awe-init: generate ## Initialise AWE schema and registry webhook callback secret
 	@bash scripts/init-awe.sh
+
+master-data-init: generate ## Migrate Master Data schema for a variant (VARIANT=farmer-registry|national-social-registry)
+	@VARIANT=$(or $(VARIANT),farmer-registry) bash scripts/init-master-data.sh $(or $(VARIANT),farmer-registry)
+
+master-data-seed: generate ## Seed Master Data geo/codelists (VARIANT=..., MASTER_DATA_COUNTRY_PACK=XKM)
+	@VARIANT=$(or $(VARIANT),farmer-registry) bash scripts/seed-master-data.sh $(or $(VARIANT),farmer-registry)
 
 iam-run: generate ## Run IAM staff portal API natively
 	@bash scripts/run-iam.sh

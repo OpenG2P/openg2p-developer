@@ -122,28 +122,27 @@ def _filter_awe_stage_sql(sql: str) -> str:
 
 
 def _patch_awe_approval_stage(sql: str) -> str:
+    """Collapse multi-stage AWE seeds to a single stage for local e2e.
+
+    Farmer/NSR awe_meta_data uses INSERT ... SELECT FROM (VALUES ...), so
+    row-filter helpers that look for ") VALUES" cannot strip stage 2. Run the
+    cleanup *after* the insert instead; FK cascade removes stage-2 rules, and
+    30_approver_rule.sql's WHERE EXISTS then only seeds stage 1.
+    """
     dev_user = os.environ.get("KEYCLOAK_DEV_USER", "staff")
     print(
         "[apply-seed-sql]   AWE: single approval stage per policy "
         f"(approver={dev_user})",
         file=sys.stderr,
     )
-    return AWE_MULTI_STAGE_CLEANUP + "\n" + _filter_awe_stage_sql(sql)
+    return sql.rstrip() + "\n" + AWE_MULTI_STAGE_CLEANUP
 
 
 def _patch_awe_approver_rule(sql: str, path: Path) -> str:
+    del path  # kept for call-site compatibility
     dev_user = os.environ.get("KEYCLOAK_DEV_USER", "staff")
-    stage_file = path.parent / "20_approval_stage.sql"
-    stage_sql = stage_file.read_text(encoding="utf-8") if stage_file.is_file() else ""
-    stage_one_ids = _stage_one_ids_from_stage_sql(_filter_awe_stage_sql(stage_sql))
-
-    filtered = _filter_insert_value_rows(
-        sql,
-        lambda row: _approver_stage_id_from_row(row) in stage_one_ids
-        if stage_one_ids
-        else True,
-    )
-    return USER_ID_JSON_RE.sub(f'"user_id": "{dev_user}"', filtered)
+    # Point every seeded approver at the local Keycloak dev user.
+    return USER_ID_JSON_RE.sub(f'"user_id": "{dev_user}"', sql)
 
 
 def _patch_score_definitions(sql: str, conn) -> str:

@@ -1,3 +1,6 @@
+# Alias installed extension package as openg2p_registry_extensions (see registry-platform main.py).
+REGISTRY_EXTENSION_MODULE="{{REGISTRY_EXTENSION_MODULE}}"
+
 REGISTRY_CELERY_BEAT_DB_USERNAME="postgres"
 REGISTRY_CELERY_BEAT_DB_PASSWORD="{{POSTGRES_PASSWORD}}"
 REGISTRY_CELERY_BEAT_DB_HOSTNAME="{{POSTGRES_HOST}}"

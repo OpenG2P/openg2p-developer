@@ -53,17 +53,8 @@ case "$VARIANT" in
     fi
 
     if [[ "$LOAD_GEO_DATA" == "true" ]]; then
-      if [[ ! -f "${DB_SEED_DIR}/load_geo_data.py" ]]; then
-        echo "Farmer geo loader not found at ${DB_SEED_DIR}/load_geo_data.py." >&2
-        exit 1
-      fi
-      echo "[seed] Preparing geo.csv from openg2p-data JSON (if needed) ..."
-      python3 "${ROOT_DIR}/scripts/openg2p-data-geo-to-csv.py" "$OPENG2P_DATA_DIR"
-      registry_variant_ensure_master_data_geo_schema
-      echo "[seed] Loading geo data into ${MASTER_DATA_DB_NAME} ..."
-      registry_variant_export_master_psql
-      export OPENG2P_DATA_DIR
-      registry_variant_run_db_seed_python load_geo_data.py
+      echo "[seed] Seeding Master Data geo/codelists for ${LABEL} ..."
+      VARIANT="$VARIANT" bash "${ROOT_DIR}/scripts/seed-master-data.sh" "$VARIANT"
     else
       echo "[seed] Skipping geo data (LOAD_GEO_DATA=${LOAD_GEO_DATA})."
     fi
@@ -80,7 +71,7 @@ case "$VARIANT" in
 
       SOURCE_FARMER_SEED_DATA_DIR="${FARMER_SEED_DATA_DIR:-${DB_SEED_DIR}/seed-data}"
       FARMER_SEED_DATA_DIR="${ROOT_DIR}/generated/farmer-registry/seed-data-remapped"
-      echo "[seed] Remapping farmer seed JSON ids to openg2p-data UUIDs ..."
+      echo "[seed] Remapping farmer seed JSON ids to openg2p-data demography ids ..."
       python3 "${ROOT_DIR}/scripts/openg2p-data-remap-farmer-seed-data.py" \
         "$OPENG2P_DATA_DIR" "$SOURCE_FARMER_SEED_DATA_DIR" "$FARMER_SEED_DATA_DIR"
 
@@ -90,6 +81,7 @@ case "$VARIANT" in
       echo "[seed] Loading farmer sample data via ${DB_SEED_DIR}/load_sample_data.py ..."
       export OPENG2P_DATA_DIR FARMER_SEED_DATA_DIR
       registry_variant_export_psql
+      registry_variant_export_master_psql
       registry_variant_run_db_seed_python load_sample_data.py
 
       echo "[seed] Normalizing farmer enum values to match extension schemas ..."
@@ -109,6 +101,21 @@ case "$VARIANT" in
     fi
     ;;
   national-social-registry)
+    if [[ "$LOAD_GEO_DATA" == "true" || "$LOAD_SAMPLE_DATA" == "true" ]]; then
+      OPENG2P_DATA_DIR="$(registry_variant_open_data_dir)"
+      if [[ ! -d "$OPENG2P_DATA_DIR" ]]; then
+        echo "openg2p-data not found at ${OPENG2P_DATA_DIR}. Run: make clone" >&2
+        exit 1
+      fi
+    fi
+
+    if [[ "$LOAD_GEO_DATA" == "true" ]]; then
+      echo "[seed] Seeding Master Data geo/codelists for ${LABEL} ..."
+      VARIANT="$VARIANT" bash "${ROOT_DIR}/scripts/seed-master-data.sh" "$VARIANT"
+    else
+      echo "[seed] Skipping geo data (LOAD_GEO_DATA=${LOAD_GEO_DATA})."
+    fi
+
     if [[ "$LOAD_SAMPLE_DATA" == "true" || "$LOAD_TEMPLATES" == "true" || "$LOAD_IMAGES" == "true" ]]; then
       if [[ ! -x "${DB_SEED_DIR}/venv/bin/python" ]]; then
         echo "[seed] Installing db-seed Python dependencies ..."
@@ -117,14 +124,9 @@ case "$VARIANT" in
     fi
 
     if [[ "$LOAD_SAMPLE_DATA" == "true" ]]; then
-      OPENG2P_DATA_DIR="$(registry_variant_open_data_dir)"
       NSR_SEED_DATA_DIR="${NSR_SEED_DATA_DIR:-${DB_SEED_DIR}/seed-data}"
       LOAD_SCRIPT="${DB_SEED_DIR}/load_sample_data.py"
 
-      if [[ ! -d "$OPENG2P_DATA_DIR" ]]; then
-        echo "openg2p-data not found at ${OPENG2P_DATA_DIR}. Run: make clone" >&2
-        exit 1
-      fi
       if [[ ! -f "$LOAD_SCRIPT" ]]; then
         echo "NSR sample loader not found at ${LOAD_SCRIPT}. Run: make clone" >&2
         exit 1
@@ -143,6 +145,7 @@ case "$VARIANT" in
         source "${API_DIR}/venv/bin/activate"
         export OPENG2P_DATA_DIR NSR_SEED_DATA_DIR
         registry_variant_export_psql
+        registry_variant_export_master_psql
         python3 load_sample_data.py
       )
     else

@@ -14,12 +14,22 @@ if [[ ! -d "$DB_SEED_DIR" ]]; then
   exit 0
 fi
 
-if [[ ! -f "${DB_SEED_DIR}/requirements.txt" ]]; then
-  echo "No requirements.txt in ${DB_SEED_DIR}; nothing to install." >&2
-  exit 0
+# Farmer/NSR db-seed may ship without requirements.txt (deps come from the
+# Docker image). Local native seed still needs a venv + psycopg2.
+if [[ -f "${DB_SEED_DIR}/requirements.txt" ]]; then
+  bash "${ROOT_DIR}/scripts/install-python-project.sh" "$DB_SEED_DIR"
+else
+  echo "No requirements.txt in ${DB_SEED_DIR}; creating minimal db-seed venv ..."
+  PYTHON_BIN="${OPENG2P_PYTHON:-python3}"
+  if [[ ! -d "${DB_SEED_DIR}/venv" ]]; then
+    "${PYTHON_BIN}" -m venv "${DB_SEED_DIR}/venv"
+  fi
+  (
+    # shellcheck disable=SC1091
+    source "${DB_SEED_DIR}/venv/bin/activate"
+    pip install --upgrade pip wheel
+  )
 fi
-
-bash "${ROOT_DIR}/scripts/install-python-project.sh" "$DB_SEED_DIR"
 
 (
   # shellcheck disable=SC1091

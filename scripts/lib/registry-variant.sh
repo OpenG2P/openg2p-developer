@@ -65,11 +65,14 @@ registry_variant_paths() {
   REGISTRY_ROOT="${OPENG2P_WORKSPACE}/registry-platform"
   GENERATED_DIR="${root}/generated/${variant}"
 
-  API_DIR="${REGISTRY_ROOT}/apis/openg2p-registry-staff-portal-api"
-  CELERY_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-workers"
-  CELERY_BEAT_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat-producers"
-  DEFAULT_UI_DIR="${REGISTRY_ROOT}/ui/staff-portal-ui"
-  LEGACY_UI_DIR="${OPENG2P_WORKSPACE}/openg2p-registry-gen2-staff-portal-ui"
+  API_DIR="${REGISTRY_ROOT}/apis/openg2p-registry-staff-api"
+  CELERY_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-worker"
+  CELERY_BEAT_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat"
+  DEFAULT_UI_DIR="${REGISTRY_ROOT}/ui/staff-ui"
+  LEGACY_UI_DIR="${REGISTRY_ROOT}/ui/staff-portal-ui"
+  MASTER_DATA_ROOT="${OPENG2P_WORKSPACE}/master-data-service"
+  MASTER_DATA_API_DIR="${MASTER_DATA_ROOT}/master-data-api"
+  MASTER_DATA_SEED_DIR="${MASTER_DATA_ROOT}/docker/db-seed"
 
   case "$variant" in
     farmer-registry)
@@ -77,6 +80,9 @@ registry_variant_paths() {
       EXTENSION_DIR="${PRODUCT_REPO}/farmer-extension"
       DB_SEED_DIR="${PRODUCT_REPO}/docker/db-seed"
       UI_DIR="${FARMER_REGISTRY_UI_PATH:-$DEFAULT_UI_DIR}"
+      MASTER_DATA_API_PORT="${MASTER_DATA_API_PORT:-8042}"
+      # XKM demo pack has core codelists only (no domains/agriculture subtree).
+      MASTER_DATA_PACK_DOMAINS="${MASTER_DATA_PACK_DOMAINS:-}"
       LABEL="Farmer Registry"
       ;;
     national-social-registry)
@@ -84,6 +90,8 @@ registry_variant_paths() {
       EXTENSION_DIR="${PRODUCT_REPO}/nsr-extension"
       DB_SEED_DIR="${PRODUCT_REPO}/docker/db-seed"
       UI_DIR="${NSR_REGISTRY_UI_PATH:-$DEFAULT_UI_DIR}"
+      MASTER_DATA_API_PORT="${NSR_MASTER_DATA_API_PORT:-8043}"
+      MASTER_DATA_PACK_DOMAINS="${MASTER_DATA_PACK_DOMAINS:-}"
       LABEL="National Social Registry"
       ;;
     *)
@@ -93,6 +101,8 @@ registry_variant_paths() {
       PRODUCT_REPO="${EXTENSION_PRODUCT_REPO_PATH}"
       DB_SEED_DIR="${PRODUCT_REPO}/docker/db-seed"
       UI_DIR="${DEFAULT_UI_DIR}"
+      MASTER_DATA_API_PORT="${EXTENSION_MASTER_DATA_API_PORT:-${MASTER_DATA_API_PORT:-8042}}"
+      MASTER_DATA_PACK_DOMAINS="${MASTER_DATA_PACK_DOMAINS:-}"
       LABEL="${EXTENSION_LABEL}"
       ;;
   esac
@@ -101,8 +111,12 @@ registry_variant_paths() {
     UI_DIR="$(registry_variant_resolve_path "$root" "$UI_DIR")"
   fi
 
-  if [[ ! -d "$UI_DIR" && -d "$LEGACY_UI_DIR" ]]; then
-    UI_DIR="$LEGACY_UI_DIR"
+  if [[ ! -d "$UI_DIR" || ! -f "${UI_DIR}/package.json" ]]; then
+    if [[ -d "$DEFAULT_UI_DIR" && -f "${DEFAULT_UI_DIR}/package.json" ]]; then
+      UI_DIR="$DEFAULT_UI_DIR"
+    elif [[ -d "$LEGACY_UI_DIR" && -f "${LEGACY_UI_DIR}/package.json" ]]; then
+      UI_DIR="$LEGACY_UI_DIR"
+    fi
   fi
 
   META_DATA_DIR="$(find "${EXTENSION_DIR}/src" -type d -name meta_data 2>/dev/null | head -1 || true)"
@@ -257,6 +271,11 @@ registry_variant_run_db_seed_python() {
 
   registry_variant_ensure_db_seed_venv
 
+  if [[ ! -x "${DB_SEED_DIR}/venv/bin/python" ]]; then
+    echo "[seed] db-seed venv missing at ${DB_SEED_DIR}/venv after install." >&2
+    return 1
+  fi
+
   if [[ -n "${OPENG2P_DATA_DIR:-}" ]]; then
     local root
     root="$(registry_variant_root)"
@@ -331,9 +350,10 @@ registry_variant_ensure_run_ready() {
   registry_variant_load_env
   registry_variant_paths "$variant"
 
-  local celery_beat_dir="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat-producers"
+  local celery_beat_dir="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat"
   local iam_api_dir="${OPENG2P_WORKSPACE}/iam-service/iam-staff-portal-api"
   local awe_dir="${OPENG2P_WORKSPACE}/awe"
+  local master_data_api_dir="${OPENG2P_WORKSPACE}/master-data-service/master-data-api"
 
   if ! registry_variant_venv_python "$API_DIR" >/dev/null 2>&1 \
     || ! registry_variant_venv_python "$CELERY_DIR" >/dev/null 2>&1 \
@@ -347,13 +367,18 @@ registry_variant_ensure_run_ready() {
     bash "${root}/scripts/install-iam.sh"
   fi
 
+  if ! registry_variant_venv_python "$master_data_api_dir" >/dev/null 2>&1; then
+    echo "[run] Installing Master Data API ..."
+    bash "${root}/scripts/install-master-data.sh"
+  fi
+
   if [[ ! -d "${awe_dir}/venv" ]]; then
     echo "[run] Installing AWE ..."
     bash "${root}/scripts/install-awe.sh"
   fi
 
   if [[ -d "$UI_DIR" && ! -x "${UI_DIR}/node_modules/.bin/next" ]]; then
-    echo "[run] Installing staff portal UI npm dependencies ..."
+    echo "[run] Installing staff UI npm dependencies ..."
     bash "${root}/scripts/install-registry-ui.sh"
   fi
 }

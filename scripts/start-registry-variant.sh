@@ -77,43 +77,52 @@ else
   echo "AWE not ready. Run: make install-awe && make awe-init" >&2
 fi
 
-run_service "${VARIANT}-staff-api" "$API_DIR" "${GENERATED_DIR}/staff-portal-api.env" \
-  python -m openg2p_registry_staff_portal_api.main run
-
-if [[ -f "${GENERATED_DIR}/celery-workers.env" ]]; then
-  # shellcheck disable=SC1090
-  source "${GENERATED_DIR}/celery-workers.env"
-fi
-run_service_stop "${VARIANT}-celery-worker" "openg2p-registry-celery-workers.*${REGISTRY_CELERY_WORKERS_WORKER_QUEUE:-farmer_registry_worker_queue}" "${CELERY_DIR}"
-run_service "${VARIANT}-celery-worker" "$CELERY_DIR" "${GENERATED_DIR}/celery-workers.env" \
-  bash -c 'exec celery -A main:celery_app worker -Q "${REGISTRY_CELERY_WORKERS_WORKER_QUEUE}" -l info --concurrency="${REGISTRY_CELERY_CONCURRENCY:-2}"'
-run_service_verify "${VARIANT}-celery-worker"
-
-CELERY_BEAT_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat-producers"
-if [[ -x "${CELERY_BEAT_DIR}/venv/bin/python" && -f "${GENERATED_DIR}/celery-beat.env" ]]; then
-  # shellcheck disable=SC1090
-  source "${GENERATED_DIR}/celery-beat.env"
-  REGISTRY_BEAT_TOKEN="${REGISTRY_CELERY_BEAT_DB_DBNAME:-farmer_registry_db}"
-  run_service_stop_celery_beats "${REGISTRY_BEAT_TOKEN}"
-  run_service_stop "${VARIANT}-celery-beat" "openg2p-registry-celery-beat-producers.*celery_app beat" "${CELERY_BEAT_DIR}"
-  run_service_stop "${VARIANT}-celery-beat-worker" "openg2p-registry-celery-beat-producers.*worker -Q celery" "${CELERY_BEAT_DIR}"
-
-  run_service "${VARIANT}-celery-beat" "$CELERY_BEAT_DIR" "${GENERATED_DIR}/celery-beat.env" \
-    bash -c 'exec celery -A main:celery_app beat -l info --schedule "/tmp/celery-beat-${REGISTRY_CELERY_BEAT_DB_DBNAME}.db"'
-  run_service_verify "${VARIANT}-celery-beat"
-
-  run_service "${VARIANT}-celery-beat-worker" "$CELERY_BEAT_DIR" "${GENERATED_DIR}/celery-beat.env" \
-    bash -c 'exec celery -A main:celery_app worker -Q celery -l info --concurrency=1'
-  run_service_verify "${VARIANT}-celery-beat-worker"
-
-  run_service_assert_single "${VARIANT} Celery beat" "openg2p-registry-celery-beat-producers.*celery_app beat" 1
-fi
-
 IAM_API_DIR="${OPENG2P_WORKSPACE}/iam-service/iam-staff-portal-api"
 IAM_ENV="${ROOT_DIR}/generated/iam/staff-portal-api.env"
 if [[ -f "$IAM_ENV" && -x "${IAM_API_DIR}/venv/bin/python" ]]; then
   run_service "iam-staff-api" "$IAM_API_DIR" "$IAM_ENV" \
     python -m iam_staff_portal_api.main run
+fi
+
+MASTER_DATA_ENV="${GENERATED_DIR}/master-data-api.env"
+if [[ -f "$MASTER_DATA_ENV" && -x "${MASTER_DATA_API_DIR}/venv/bin/python" ]]; then
+  # Prefer package ASGI path — fastapi-common "run" with worker_type=uvicorn
+  # looks for repo-root main:app, which this service does not ship.
+  run_service "${VARIANT}-master-data-api" "$MASTER_DATA_API_DIR" "$MASTER_DATA_ENV" \
+    bash -c 'exec uvicorn openg2p_gen2_master_data.main:app --host "${GEN2_MASTER_DATA_API_HOST:-0.0.0.0}" --port "${GEN2_MASTER_DATA_API_PORT:-${UVICORN_PORT}}" --log-level info'
+fi
+
+run_service "${VARIANT}-staff-api" "$API_DIR" "${GENERATED_DIR}/staff-portal-api.env" \
+  python -m openg2p_registry_staff_api.main run
+
+if [[ -f "${GENERATED_DIR}/celery-workers.env" ]]; then
+  # shellcheck disable=SC1090
+  source "${GENERATED_DIR}/celery-workers.env"
+fi
+# Use package main.py (not repo-root main.py) so REGISTRY_EXTENSION_MODULE aliasing runs.
+run_service_stop "${VARIANT}-celery-worker" "openg2p-registry-celery-worker.*${REGISTRY_CELERY_WORKERS_WORKER_QUEUE:-farmer_registry_worker_queue}" "${CELERY_DIR}"
+run_service "${VARIANT}-celery-worker" "$CELERY_DIR" "${GENERATED_DIR}/celery-workers.env" \
+  bash -c 'exec celery -A openg2p_registry_celery_worker.main:celery_app worker -Q "${REGISTRY_CELERY_WORKERS_WORKER_QUEUE}" -l info --concurrency="${REGISTRY_CELERY_CONCURRENCY:-2}"'
+run_service_verify "${VARIANT}-celery-worker"
+
+CELERY_BEAT_DIR="${REGISTRY_ROOT}/celery/openg2p-registry-celery-beat"
+if [[ -x "${CELERY_BEAT_DIR}/venv/bin/python" && -f "${GENERATED_DIR}/celery-beat.env" ]]; then
+  # shellcheck disable=SC1090
+  source "${GENERATED_DIR}/celery-beat.env"
+  REGISTRY_BEAT_TOKEN="${REGISTRY_CELERY_BEAT_DB_DBNAME:-farmer_registry_db}"
+  run_service_stop_celery_beats "${REGISTRY_BEAT_TOKEN}"
+  run_service_stop "${VARIANT}-celery-beat" "openg2p-registry-celery-beat.*celery_app beat" "${CELERY_BEAT_DIR}"
+  run_service_stop "${VARIANT}-celery-beat-worker" "openg2p-registry-celery-beat.*worker -Q celery" "${CELERY_BEAT_DIR}"
+
+  run_service "${VARIANT}-celery-beat" "$CELERY_BEAT_DIR" "${GENERATED_DIR}/celery-beat.env" \
+    bash -c 'exec celery -A openg2p_registry_celery_beat.main:celery_app beat -l info --schedule "/tmp/celery-beat-${REGISTRY_CELERY_BEAT_DB_DBNAME}.db"'
+  run_service_verify "${VARIANT}-celery-beat"
+
+  run_service "${VARIANT}-celery-beat-worker" "$CELERY_BEAT_DIR" "${GENERATED_DIR}/celery-beat.env" \
+    bash -c 'exec celery -A openg2p_registry_celery_beat.main:celery_app worker -Q celery -l info --concurrency=1'
+  run_service_verify "${VARIANT}-celery-beat-worker"
+
+  run_service_assert_single "${VARIANT} Celery beat" "openg2p_registry_celery_beat.main:celery_app beat" 1
 fi
 
 if [[ -d "$UI_DIR" && -x "${UI_DIR}/node_modules/.bin/next" ]]; then
